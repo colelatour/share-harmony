@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { MapPin, DollarSign, TrendingUp, Percent, Calendar, FileText, ExternalLink } from "lucide-react";
+import { MapPin, DollarSign, TrendingUp, Percent, Calendar, FileText, ExternalLink, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import AnimatedSection from "@/components/AnimatedSection";
 import OwnershipRing from "@/components/OwnershipRing";
 import HealthBadge from "@/components/HealthBadge";
@@ -14,11 +16,13 @@ const ownershipData = [
   { name: "Cole", percentage: 20, color: "hsl(280, 65%, 60%)" },
 ];
 
-const details = [
-  { icon: DollarSign, label: "Current Salary Pool", value: "$18,200/mo", health: "on-track" as const, tip: "Combined monthly income of all co-owners used to assess affordability." },
-  { icon: TrendingUp, label: "Deposit Goal", value: "$97,000", health: "on-track" as const, tip: "Total deposit needed. Your team is at 68% — strong progress toward this target." },
-  { icon: Percent, label: "Mortgage Rate", value: "5.25%", health: "caution" as const, tip: "Current estimated mortgage interest rate. Rates fluctuate — lock in when ready." },
-  { icon: DollarSign, label: "House Value", value: "$485,000", health: "on-track" as const, tip: "Estimated property market value based on recent comparable sales." },
+type DetailKey = "salary" | "deposit" | "rate" | "houseValue";
+
+const detailConfig = [
+  { icon: DollarSign, label: "Current Salary Pool", key: "salary" as DetailKey, health: "on-track" as const, tip: "Combined monthly income of all co-owners used to assess affordability.", format: (v: number) => `$${v.toLocaleString()}/mo`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
+  { icon: TrendingUp, label: "Deposit Goal", key: "deposit" as DetailKey, health: "on-track" as const, tip: "Total deposit needed. Your team is at 68% — strong progress toward this target.", format: (v: number) => `$${v.toLocaleString()}`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
+  { icon: Percent, label: "Mortgage Rate", key: "rate" as DetailKey, health: "caution" as const, tip: "Current estimated mortgage interest rate. Rates fluctuate — lock in when ready.", format: (v: number) => `${v}%`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
+  { icon: DollarSign, label: "House Value", key: "houseValue" as DetailKey, health: "on-track" as const, tip: "Estimated property market value based on recent comparable sales.", format: (v: number) => `$${v.toLocaleString()}`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
 ];
 
 const milestones = [
@@ -29,7 +33,36 @@ const milestones = [
   { date: "Feb 2027", event: "Target closing date", done: false },
 ];
 
+const initialValues = { salary: 18200, deposit: 97000, rate: 5.25, houseValue: 485000 };
+
 const PropertyDetail = () => {
+  const [values, setValues] = useState(initialValues);
+  const [hoveredDetailIndex, setHoveredDetailIndex] = useState<number | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editInputValue, setEditInputValue] = useState("");
+
+  const getValue = (key: DetailKey) => values[key];
+  const setValue = (key: DetailKey, n: number) => setValues((v) => ({ ...v, [key]: n }));
+
+  const startEditing = (i: number) => {
+    const cfg = detailConfig[i];
+    const raw = getValue(cfg.key);
+    setEditInputValue(cfg.key === "rate" ? String(raw) : String(Math.round(raw)));
+    setEditingIndex(i);
+  };
+
+  const saveEdit = () => {
+    if (editingIndex === null) return;
+    const cfg = detailConfig[editingIndex];
+    const parsed = cfg.parse(editInputValue);
+    setValue(cfg.key, parsed);
+    setEditingIndex(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container py-8">
@@ -59,23 +92,60 @@ const PropertyDetail = () => {
               </motion.div>
 
               <div className="grid grid-cols-2 gap-4 p-6">
-                {details.map((d, i) => (
+                {detailConfig.map((d, i) => (
                   <motion.div
                     key={i}
-                    className="rounded-xl bg-muted/50 p-4"
+                    className="relative rounded-xl bg-muted/50 p-4"
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3 + i * 0.1 }}
+                    onMouseEnter={() => setHoveredDetailIndex(i)}
+                    onMouseLeave={() => setHoveredDetailIndex(null)}
                   >
                     <div className="flex items-center gap-1.5 text-muted-foreground">
                       <d.icon className="h-4 w-4" />
                       <span className="text-xs">{d.label}</span>
                       <InfoTooltip content={d.tip} />
                     </div>
-                    <p className="mt-1 font-display text-xl font-bold text-foreground">{d.value}</p>
+                    {editingIndex === i ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <Input
+                          type="text"
+                          value={editInputValue}
+                          onChange={(e) => setEditInputValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveEdit();
+                            if (e.key === "Escape") cancelEdit();
+                          }}
+                          className="h-9 w-full max-w-[140px] font-display text-lg"
+                          autoFocus
+                        />
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="ghost" className="h-8 px-2" onClick={saveEdit}>
+                            Save
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-8 px-2" onClick={cancelEdit}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-1 font-display text-xl font-bold text-foreground pr-10">{d.format(getValue(d.key))}</p>
+                    )}
                     <div className="mt-1">
                       <HealthBadge status={d.health} />
                     </div>
+                    {hoveredDetailIndex === i && editingIndex !== i && (
+                      <Button
+                        size="icon"
+                        variant="secondary"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-lg shadow-sm"
+                        onClick={() => startEditing(i)}
+                        aria-label={`Edit ${d.label}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                   </motion.div>
                 ))}
               </div>
