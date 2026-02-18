@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { MapPin, DollarSign, TrendingUp, Percent, Calendar, FileText, ExternalLink, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,13 +16,17 @@ const ownershipData = [
   { name: "Cole", percentage: 20, color: "hsl(280, 65%, 60%)" },
 ];
 
-type DetailKey = "salary" | "deposit" | "rate" | "houseValue";
+type DetailKey =
+  | "current_salary_pool"
+  | "deposit_goal"
+  | "mortgage_rate"
+  | "house_value";
 
 const detailConfig = [
-  { icon: DollarSign, label: "Current Salary Pool", key: "salary" as DetailKey, health: "on-track" as const, tip: "Combined monthly income of all co-owners used to assess affordability.", format: (v: number) => `$${v.toLocaleString()}/mo`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
-  { icon: TrendingUp, label: "Deposit Goal", key: "deposit" as DetailKey, health: "on-track" as const, tip: "Total deposit needed. Your team is at 68% — strong progress toward this target.", format: (v: number) => `$${v.toLocaleString()}`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
-  { icon: Percent, label: "Mortgage Rate", key: "rate" as DetailKey, health: "caution" as const, tip: "Current estimated mortgage interest rate. Rates fluctuate — lock in when ready.", format: (v: number) => `${v}%`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
-  { icon: DollarSign, label: "House Value", key: "houseValue" as DetailKey, health: "on-track" as const, tip: "Estimated property market value based on recent comparable sales.", format: (v: number) => `$${v.toLocaleString()}`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
+  { icon: DollarSign, label: "Current Salary Pool", key: "current_salary_pool" as DetailKey, health: "on-track" as const, tip: "Combined monthly income of all co-owners used to assess affordability.", format: (v: number) => `$${v.toLocaleString()}/mo`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
+  { icon: TrendingUp, label: "Deposit Goal", key: "deposit_goal" as DetailKey, health: "on-track" as const, tip: "Total deposit needed. Your team is at 68% — strong progress toward this target.", format: (v: number) => `$${v.toLocaleString()}`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
+  { icon: Percent, label: "Mortgage Rate", key: "mortgage_rate" as DetailKey, health: "caution" as const, tip: "Current estimated mortgage interest rate. Rates fluctuate — lock in when ready.", format: (v: number) => `${v}%`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
+  { icon: DollarSign, label: "House Value", key: "house_value" as DetailKey, health: "on-track" as const, tip: "Estimated property market value based on recent comparable sales.", format: (v: number) => `$${v.toLocaleString()}`, parse: (s: string) => parseFloat(s.replace(/[^0-9.]/g, "")) || 0 },
 ];
 
 const milestones = [
@@ -33,30 +37,99 @@ const milestones = [
   { date: "Feb 2027", event: "Target closing date", done: false },
 ];
 
-const initialValues = { salary: 18200, deposit: 97000, rate: 5.25, houseValue: 485000 };
+const HOUSE_ID = 1;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
+const initialValues: Record<DetailKey, number> = {
+  current_salary_pool: 0,
+  deposit_goal: 0,
+  mortgage_rate: 0,
+  house_value: 0,
+};
 
 const PropertyDetail = () => {
   const [values, setValues] = useState(initialValues);
   const [hoveredDetailIndex, setHoveredDetailIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editInputValue, setEditInputValue] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   const getValue = (key: DetailKey) => values[key];
-  const setValue = (key: DetailKey, n: number) => setValues((v) => ({ ...v, [key]: n }));
 
   const startEditing = (i: number) => {
     const cfg = detailConfig[i];
     const raw = getValue(cfg.key);
-    setEditInputValue(cfg.key === "rate" ? String(raw) : String(Math.round(raw)));
+    setEditInputValue(cfg.key === "mortgage_rate" ? String(raw) : String(Math.round(raw)));
     setEditingIndex(i);
   };
 
-  const saveEdit = () => {
+  useEffect(() => {
+    const fetchPropertyDetails = async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/houses/${HOUSE_ID}/property-details`
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch property details");
+        }
+
+        const data = await response.json();
+        setValues({
+          current_salary_pool: Number(data.current_salary_pool) || 0,
+          deposit_goal: Number(data.deposit_goal) || 0,
+          mortgage_rate: Number(data.mortgage_rate) || 0,
+          house_value: Number(data.house_value) || 0,
+        });
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPropertyDetails();
+  }, []);
+
+  const saveEdit = async () => {
     if (editingIndex === null) return;
+
     const cfg = detailConfig[editingIndex];
     const parsed = cfg.parse(editInputValue);
-    setValue(cfg.key, parsed);
-    setEditingIndex(null);
+
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/houses/${HOUSE_ID}/property-details`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [cfg.key]: parsed }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to update property details");
+      }
+
+      const updated = await response.json();
+      setValues({
+        current_salary_pool: Number(updated.current_salary_pool) || 0,
+        deposit_goal: Number(updated.deposit_goal) || 0,
+        mortgage_rate: Number(updated.mortgage_rate) || 0,
+        house_value: Number(updated.house_value) || 0,
+      });
+      setEditingIndex(null);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const cancelEdit = () => {
@@ -114,14 +187,14 @@ const PropertyDetail = () => {
                           value={editInputValue}
                           onChange={(e) => setEditInputValue(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") saveEdit();
+                            if (e.key === "Enter") void saveEdit();
                             if (e.key === "Escape") cancelEdit();
                           }}
                           className="h-9 w-full max-w-[140px] font-display text-lg"
                           autoFocus
                         />
                         <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" className="h-8 px-2" onClick={saveEdit}>
+                          <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => void saveEdit()} disabled={isSaving}>
                             Save
                           </Button>
                           <Button size="sm" variant="ghost" className="h-8 px-2" onClick={cancelEdit}>
@@ -130,7 +203,7 @@ const PropertyDetail = () => {
                         </div>
                       </div>
                     ) : (
-                      <p className="mt-1 font-display text-xl font-bold text-foreground pr-10">{d.format(getValue(d.key))}</p>
+                      <p className="mt-1 font-display text-xl font-bold text-foreground pr-10">{isLoading ? "..." : d.format(getValue(d.key))}</p>
                     )}
                     <div className="mt-1">
                       <HealthBadge status={d.health} />
