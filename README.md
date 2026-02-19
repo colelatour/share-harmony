@@ -66,8 +66,8 @@ If it already exists, continue to the next step.
 
 5. Run schema and seed scripts:
 ```bash
-psql -h localhost -p 5432 -U username -d permashare -f db/create_database.sql
-psql -h localhost -p 5432 -U username -d permashare -f db/seed.sql
+psql -h localhost -p 5432 -U your_username -d permashare -f db/create_database.sql
+psql -h localhost -p 5432 -U your_username -d permashare -f db/seed.sql
 ```
 
 6. Configure backend environment variables in `backend/.env`:
